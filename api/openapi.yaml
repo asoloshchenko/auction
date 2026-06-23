@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: Lily Market Auction API
+  description: |
+    Backend for the Lily Market campus auction platform.
+    Identity is a single JWT issued on register/login and sent as
+    `Authorization: Bearer <token>` on protected endpoints.
+    Bids and real-time auction updates are delivered over WebSocket and are
+    intentionally outside this REST contract.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: auth
+    description: Registration and login
+  - name: auctions
+    description: Auction management
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: registerUser
+      summary: Register a new user
+      description: Creates a user with a university email and password, returning a JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '201':
+          description: User created; token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: loginUser
+      summary: Log in
+      description: Verifies credentials and returns a JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: Authenticated; token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /auctions:
+    post:
+      tags: [auctions]
+      operationId: createAuction
+      summary: Create an auction
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAuctionRequest'
+      responses:
+        '201':
+          description: Auction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auction'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      tags: [auctions]
+      operationId: listAuctions
+      summary: List auctions
+      description: Returns a paginated list of auctions.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: A page of auctions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuctionList'
+        default:
+          $ref: '#/components/responses/Error'
+  /auctions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [auctions]
+      operationId: getAuction
+      summary: Get an auction by id
+      responses:
+        '200':
+          description: The auction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auction'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [auctions]
+      operationId: updateAuction
+      summary: Edit an auction
+      description: Owner-only; allowed only before the first bid.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAuctionRequest'
+      responses:
+        '200':
+          description: Updated auction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auction'
+        default:
+          $ref: '#/components/responses/Error'
+  /auctions/{id}/cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [auctions]
+      operationId: cancelAuction
+      summary: Cancel an auction
+      description: Owner-only; allowed only before the first bid.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Canceled auction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auction'
+        default:
+          $ref: '#/components/responses/Error'
+  /auctions/{id}/sold:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [auctions]
+      operationId: markAuctionSold
+      summary: Mark an ended auction as sold
+      description: Owner-only; allowed only after the auction ended with a winner.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sold auction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auction'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: student@uni.edu
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: supersecret
+    TokenResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: "JWT to send as `Authorization: Bearer <token>`"
+    AuctionState:
+      type: string
+      enum: [ACTIVE, ENDED, SOLD, CANCELED]
+    CreateAuctionRequest:
+      type: object
+      required: [name, startPrice, step, endDate]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        startPrice:
+          type: integer
+          format: int64
+          minimum: 0
+        step:
+          type: integer
+          format: int64
+          minimum: 1
+        buyNowPrice:
+          type: integer
+          format: int64
+          minimum: 1
+        endDate:
+          type: string
+          format: date-time
+    UpdateAuctionRequest:
+      type: object
+      required: [name, startPrice, step, endDate]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        startPrice:
+          type: integer
+          format: int64
+          minimum: 0
+        step:
+          type: integer
+          format: int64
+          minimum: 1
+        buyNowPrice:
+          type: integer
+          format: int64
+          minimum: 1
+        endDate:
+          type: string
+          format: date-time
+    Auction:
+      type: object
+      required: [id, name, owner, startPrice, step, endDate, state, currentPrice, bidCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner:
+          type: integer
+          format: int64
+        startPrice:
+          type: integer
+          format: int64
+        step:
+          type: integer
+          format: int64
+        buyNowPrice:
+          type: integer
+          format: int64
+        endDate:
+          type: string
+          format: date-time
+        state:
+          $ref: '#/components/schemas/AuctionState'
+        winner:
+          type: integer
+          format: int64
+        currentPrice:
+          type: integer
+          format: int64
+          description: Highest bid so far, or the start price if there are no bids.
+        bidCount:
+          type: integer
+          format: int32
+    AuctionList:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Auction'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
